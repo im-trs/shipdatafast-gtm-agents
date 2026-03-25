@@ -13,12 +13,14 @@ import { updateLeadStatus } from "../core/repositories/leads"
 import * as path from "path"
 import { launchRedditPersistentContext, isLocatorVisible } from "../core/playwright/reddit-session"
 import { PLAYWRIGHT_TIMEOUTS } from "../core/playwright/config"
+import { startTiming, endTiming, timed, logStep, logInteraction, logNavigation, logSelectorMatch } from "../core/playwright/timing"
 
 const AGENT_NAME = "executor_reddit"
 
 // Configurable headless mode (default: false for debugging)
 const HEADLESS = process.env.PLAYWRIGHT_HEADLESS === "true"
 const SAFE_MODE = process.env.REDDIT_EXECUTION_MODE !== "live"
+const VERBOSE_TIMING = process.env.PLAYWRIGHT_VERBOSE === "true"
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -33,16 +35,26 @@ async function postToReddit(
   url: string,
   replyText: string
 ): Promise<{ success: boolean; externalId?: string }> {
+  const totalTimer = startTiming("postToReddit.total")
+
   try {
-    console.log(`[LIVE] Navigating to: ${url}`)
+    // Step 1: Navigate to thread
+    logStep(`[LIVE] Navigating to: ${url}`)
+    const navTimer = startTiming("page.goto")
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: PLAYWRIGHT_TIMEOUTS.navigation })
-    
-    // Wait for network to be idle (better than fixed timeout)
+    endTiming(navTimer)
+
+    // Wait for network to be idle
+    const networkTimer = startTiming("waitForLoadState.networkidle")
     await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+    endTiming(networkTimer)
+
     await sleep(randomDelay(1000, 2000))
 
-    // Check page title for debugging
+    // Check page title
+    const titleTimer = startTiming("page.title")
     const pageTitle = await page.title()
+    endTiming(titleTimer)
     console.log(`[LIVE] Page title: ${pageTitle}`)
 
     // Check if we're on a Reddit page (not login wall)
@@ -51,7 +63,10 @@ async function postToReddit(
       throw new Error("Redirected to login page - session may have expired")
     }
 
-    // Find reply/textarea element using user-facing locators
+    // Step 2: Find reply textarea
+    logStep("[LIVE] Finding reply textbox...")
+    const findTextareaTimer = startTiming("find.textarea")
+
     const textarea = page
       .getByRole('textbox', { name: /comment|reply/i })
       .or(page.locator('textarea[placeholder*="comment"]'))
@@ -59,10 +74,12 @@ async function postToReddit(
       .or(page.locator('div[contenteditable="true"]'))
       .first()
 
-    // Wait for textarea to be visible with timeout
     const textareaVisible = await isLocatorVisible(textarea, PLAYWRIGHT_TIMEOUTS.elementWait)
+    endTiming(findTextareaTimer, textareaVisible ? "found" : "not found")
+
     if (!textareaVisible) {
       console.log(`[LIVE] Available textareas on page:`)
+      const availableTimer = startTiming("evaluate.textareas")
       const availableTextareas = await page.evaluate(() => {
         const elements = document.querySelectorAll('textarea, div[contenteditable="true"]')
         return Array.from(elements).map((el, i) => ({
@@ -71,17 +88,25 @@ async function postToReddit(
           visible: el.getBoundingClientRect().width > 0,
         }))
       })
+      endTiming(availableTimer)
       console.log(JSON.stringify(availableTextareas, null, 2))
       throw new Error("Could not find reply textarea")
     }
 
-    console.log(`[LIVE] Found reply textbox`)
+    logSelectorMatch(textarea.toString(), findTextareaTimer.start - Date.now())
 
-    // Type the reply (simulate human typing) - no need for click() before fill()
+    // Step 3: Fill reply text
+    logStep("[LIVE] Filling reply text...")
+    const fillTimer = startTiming("textarea.fill")
     await textarea.fill(replyText)
+    endTiming(fillTimer)
+
     await sleep(randomDelay(500, 1000))
 
-    // Find and click submit button using role-based locator
+    // Step 4: Find and click submit button
+    logStep("[LIVE] Finding submit button...")
+    const findSubmitTimer = startTiming("find.submitButton")
+
     const submitButton = page
       .getByRole('button', { name: /comment|reply|post/i })
       .or(page.locator('button[type="submit"]'))
@@ -89,20 +114,30 @@ async function postToReddit(
       .first()
 
     const submitVisible = await isLocatorVisible(submitButton, PLAYWRIGHT_TIMEOUTS.elementWait)
+    endTiming(findSubmitTimer, submitVisible ? "found" : "not found")
+
     if (submitVisible) {
-      console.log(`[LIVE] Found submit button`)
+      logStep("[LIVE] Clicking submit button...")
+      const clickTimer = startTiming("submitButton.click")
       await submitButton.click()
+      endTiming(clickTimer)
     } else {
-      console.log(`[LIVE] No submit button found, pressing Enter as fallback`)
-      // If no submit button found, try pressing Enter
+      logStep("[LIVE] No submit button found, pressing Enter as fallback")
+      const pressTimer = startTiming("textarea.press.Enter")
       await textarea.press("Enter")
+      endTiming(pressTimer)
     }
 
     // Wait for potential navigation or update
+    const postWaitTimer = startTiming("postSubmission.wait")
     await sleep(randomDelay(2000, 3000))
+    endTiming(postWaitTimer)
 
     // Generate external ID
     const externalId = `reddit_${Date.now()}_${url.slice(-8)}`
+
+    endTiming(totalTimer)
+    console.log(`✅ [LIVE] Post action complete - Total: ${Date.now() - totalTimer.start}ms\n`)
 
     return {
       success: true,
@@ -111,6 +146,7 @@ async function postToReddit(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown posting error"
     console.error(`[LIVE] Posting failed: ${message}`)
+    endTiming(totalTimer, "FAILED")
     return {
       success: false,
     }
