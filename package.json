@@ -8,7 +8,10 @@
     "dev": "tsx scripts/run.ts",
     "db:test": "tsx scripts/test-db.ts",
     "db:init": "tsx scripts/init-db.ts",
-    "db:extensions": "./scripts/enable-extensions.sh"
+    "db:extensions": "./scripts/enable-extensions.sh",
+    "seed:leads": "tsx scripts/seed-leads.ts",
+    "agent:sniper": "tsx scripts/run-sniper.ts",
+    "inspect:state": "tsx scripts/inspect-state.ts"
   },
   "keywords": [],
   "author": "",
