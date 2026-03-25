@@ -18,6 +18,7 @@
     "agent:ingest:reddit": "tsx scripts/run-ingestor-reddit.ts",
     "agent:qualifier": "tsx scripts/run-qualifier.ts",
     "agent:closer": "tsx scripts/run-closer.ts",
+    "agent:optimizer": "tsx scripts/run-optimizer.ts",
     "metrics": "tsx scripts/run-metrics.ts",
     "inspect:state": "tsx scripts/inspect-state.ts",
     "inspect:fresh": "tsx scripts/inspect-fresh-leads.ts",
