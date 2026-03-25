@@ -60,33 +60,45 @@ async function main() {
   console.log("--- Step 3: Open First Post ---")
   console.log("Scanning for post links...")
 
-  // Try multiple selectors for post links - optimized parallel approach
-  const postSelectors = [
-    'a[href*="/comments/"][data-click-id="post"]',
-    'shreddit-post a[slot="title"]',
-    'h3 a[href*="/comments/"]',
-    '[data-testid="post-title"]',
-    'a[href*="/comments/"]',
-  ]
+  // Use user-facing locators with chaining
+  const post = page
+    .getByRole('link', { name: /r\/|comments/i })
+    .filter({ hasText: /r\// })
+    .first()
 
-  let firstPostLink = null
-  let matchedSelector = ""
+  try {
+    await post.waitFor({ state: 'visible', timeout: 5000 })
+    const href = await post.getAttribute('href')
+    if (href) {
+      firstPostLink = href
+      console.log(`✅ Found post link: ${href}\n`)
+    }
+  } catch {
+    // Fallback to CSS selectors
+    const postSelectors = [
+      'a[href*="/comments/"][data-click-id="post"]',
+      'shreddit-post a[slot="title"]',
+      'h3 a[href*="/comments/"]',
+      '[data-testid="post-title"]',
+      'a[href*="/comments/"]',
+    ]
 
-  for (const selector of postSelectors) {
-    try {
-      const element = await page.locator(selector).first()
-      const isVisible = await element.isVisible()
-      const href = await element.getAttribute("href")
+    for (const selector of postSelectors) {
+      try {
+        const element = await page.locator(selector).first()
+        const isVisible = await element.isVisible()
+        const href = await element.getAttribute("href")
 
-      if (isVisible && href && href.includes("/comments/")) {
-        firstPostLink = href
-        matchedSelector = selector
-        console.log(`✅ Found post with selector: ${selector}`)
-        console.log(`   Post href: ${href}\n`)
-        break
+        if (isVisible && href && href.includes("/comments/")) {
+          firstPostLink = href
+          matchedSelector = selector
+          console.log(`✅ Found post with selector: ${selector}`)
+          console.log(`   Post href: ${href}\n`)
+          break
+        }
+      } catch {
+        // Silent fail, try next selector
       }
-    } catch {
-      // Silent fail, try next selector
     }
   }
 
@@ -120,33 +132,40 @@ async function main() {
 
   console.log(`Post page title: ${await page.title()}\n`)
 
-  // Step 4: Detect comments
+  // Step 4: Detect comments using user-facing locators
   console.log("--- Step 4: Detect Comments ---")
   console.log("Scanning for comments...")
 
-  const commentSelectors = [
-    'shreddit-comment',
-    '[data-testid="comment"]',
-    '.comment',
-    '[data-click-id="comment"]',
-    'article[data-testid="comment"]',
-  ]
+  // Try role-based locator first
+  const comments = page.getByRole('article').filter({ hasText: /comment/i })
+  
+  try {
+    await comments.first().waitFor({ state: 'visible', timeout: 5000 })
+    commentCount = await comments.count()
+    console.log(`✅ Found ${commentCount} comments with role-based locator`)
+  } catch {
+    // Fallback to CSS selectors
+    const commentSelectors = [
+      'shreddit-comment',
+      '[data-testid="comment"]',
+      '.comment',
+      '[data-click-id="comment"]',
+      'article[data-testid="comment"]',
+    ]
 
-  let commentCount = 0
-  let matchedCommentSelector = ""
-
-  for (const selector of commentSelectors) {
-    try {
-      const comments = await page.locator(selector)
-      const count = await comments.count()
-      if (count > 0) {
-        commentCount = count
-        matchedCommentSelector = selector
-        console.log(`✅ Found ${count} comments with selector: ${selector}`)
-        break
+    for (const selector of commentSelectors) {
+      try {
+        const commentElements = await page.locator(selector)
+        const count = await commentElements.count()
+        if (count > 0) {
+          commentCount = count
+          matchedCommentSelector = selector
+          console.log(`✅ Found ${count} comments with selector: ${selector}`)
+          break
+        }
+      } catch {
+        continue
       }
-    } catch {
-      continue
     }
   }
 

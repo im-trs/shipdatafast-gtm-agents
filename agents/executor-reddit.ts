@@ -1,4 +1,4 @@
-import { chromium } from "playwright"
+import { chromium, type Page } from "playwright"
 import { query } from "../core/utils/db"
 import { insertInteraction } from "../core/repositories/interactions"
 import { logTelemetryEvent } from "../core/repositories/telemetry"
@@ -25,14 +25,17 @@ function randomDelay(min: number, max: number): number {
 }
 
 async function postToReddit(
-  page: any,
+  page: Page,
   url: string,
   replyText: string
 ): Promise<{ success: boolean; externalId?: string }> {
   try {
     console.log(`[LIVE] Navigating to: ${url}`)
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 })
-    await sleep(randomDelay(2000, 3000))
+    
+    // Wait for network to be idle (better than fixed timeout)
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+    await sleep(randomDelay(1000, 2000))
 
     // Check page title for debugging
     const pageTitle = await page.title()
@@ -44,31 +47,18 @@ async function postToReddit(
       throw new Error("Redirected to login page - session may have expired")
     }
 
-    // Find reply/textarea element
-    const textareaSelectors = [
-      'textarea[placeholder*="comment"]',
-      'textarea[aria-label*="comment"]',
-      'div[contenteditable="true"]',
-      'textarea',
-    ]
+    // Find reply/textarea element using user-facing locators
+    const textarea = page
+      .getByRole('textbox', { name: /comment|reply/i })
+      .or(page.locator('textarea[placeholder*="comment"]'))
+      .or(page.locator('textarea[aria-label*="comment"]'))
+      .or(page.locator('div[contenteditable="true"]'))
+      .first()
 
-    let textarea = null
-    let matchedSelector = ""
-    for (const selector of textareaSelectors) {
-      try {
-        textarea = await page.locator(selector).first()
-        const isVisible = await textarea.isVisible()
-        if (isVisible) {
-          matchedSelector = selector
-          break
-        }
-        textarea = null
-      } catch {
-        continue
-      }
-    }
-
-    if (!textarea) {
+    // Wait for textarea to be visible with timeout
+    try {
+      await textarea.waitFor({ state: 'visible', timeout: 5000 })
+    } catch {
       console.log(`[LIVE] Available textareas on page:`)
       const availableTextareas = await page.evaluate(() => {
         const elements = document.querySelectorAll('textarea, div[contenteditable="true"]')
@@ -82,9 +72,9 @@ async function postToReddit(
       throw new Error("Could not find reply textarea")
     }
 
-    console.log(`[LIVE] Found textarea with selector: ${matchedSelector}`)
+    console.log(`[LIVE] Found reply textbox`)
 
-    // Click to focus
+    // Click to focus and type
     await textarea.click()
     await sleep(500)
 
@@ -92,40 +82,25 @@ async function postToReddit(
     await textarea.fill(replyText)
     await sleep(randomDelay(500, 1000))
 
-    // Find and click submit button
-    const submitSelectors = [
-      'button[type="submit"]',
-      'button:has-text("Comment")',
-      'button:has-text("Reply")',
-      '[data-testid="post-comment"]',
-    ]
+    // Find and click submit button using role-based locator
+    const submitButton = page
+      .getByRole('button', { name: /comment|reply|post/i })
+      .or(page.locator('button[type="submit"]'))
+      .or(page.locator('[data-testid="post-comment"]'))
+      .first()
 
-    let submitButton = null
-    let matchedSubmitSelector = ""
-    for (const selector of submitSelectors) {
-      try {
-        submitButton = await page.locator(selector).first()
-        const isVisible = await submitButton.isVisible()
-        if (isVisible) {
-          matchedSubmitSelector = selector
-          break
-        }
-        submitButton = null
-      } catch {
-        continue
-      }
-    }
-
-    if (submitButton) {
-      console.log(`[LIVE] Found submit button with selector: ${matchedSubmitSelector}`)
+    try {
+      await submitButton.waitFor({ state: 'visible', timeout: 5000 })
+      console.log(`[LIVE] Found submit button`)
       await submitButton.click()
-      await sleep(randomDelay(2000, 3000))
-    } else {
+    } catch {
       console.log(`[LIVE] No submit button found, pressing Enter as fallback`)
       // If no submit button found, try pressing Enter
       await textarea.press("Enter")
-      await sleep(randomDelay(1000, 2000))
     }
+
+    // Wait for potential navigation or update
+    await sleep(randomDelay(2000, 3000))
 
     // Generate external ID
     const externalId = `reddit_${Date.now()}_${url.slice(-8)}`
