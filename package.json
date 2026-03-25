@@ -27,7 +27,8 @@
     "debug:reddit:session": "tsx scripts/debug-reddit-session.ts",
     "debug:reddit:thread": "tsx scripts/debug-reddit-thread.ts",
     "debug:reddit:login": "tsx scripts/debug-reddit-login.ts",
-    "debug:reddit:check": "tsx scripts/debug-reddit-session-check.ts"
+    "debug:reddit:check": "tsx scripts/debug-reddit-session-check.ts",
+    "debug:reddit:dom": "tsx scripts/debug-reddit-dom.ts"
   },
   "keywords": [],
   "author": "",
