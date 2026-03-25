@@ -9,11 +9,15 @@
     "db:test": "tsx scripts/test-db.ts",
     "db:init": "tsx scripts/init-db.ts",
     "db:extensions": "./scripts/enable-extensions.sh",
+    "db:migrate:execution": "tsx scripts/migrate-execution-layer.ts",
     "seed:leads": "tsx scripts/seed-leads.ts",
-    "agent:sniper": "tsx scripts/run-sniper.ts",
-    "inspect:state": "tsx scripts/inspect-state.ts",
     "agent:hunter:real": "tsx scripts/run-hunter-real.ts",
-    "inspect:fresh": "tsx scripts/inspect-fresh-leads.ts"
+    "agent:sniper": "tsx scripts/run-sniper.ts",
+    "agent:queue": "tsx scripts/run-queue-builder.ts",
+    "agent:execute:dry": "tsx scripts/run-executor-dryrun.ts",
+    "inspect:state": "tsx scripts/inspect-state.ts",
+    "inspect:fresh": "tsx scripts/inspect-fresh-leads.ts",
+    "inspect:queue": "tsx scripts/inspect-queue.ts"
   },
   "keywords": [],
   "author": "",
