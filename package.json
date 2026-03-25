@@ -16,6 +16,7 @@
     "agent:queue": "tsx scripts/run-queue-builder.ts",
     "agent:execute:dry": "tsx scripts/run-executor-dryrun.ts",
     "agent:ingest:reddit": "tsx scripts/run-ingestor-reddit.ts",
+    "agent:qualifier": "tsx scripts/run-qualifier.ts",
     "inspect:state": "tsx scripts/inspect-state.ts",
     "inspect:fresh": "tsx scripts/inspect-fresh-leads.ts",
     "inspect:queue": "tsx scripts/inspect-queue.ts"
