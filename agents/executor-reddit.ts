@@ -30,8 +30,19 @@ async function postToReddit(
   replyText: string
 ): Promise<{ success: boolean; externalId?: string }> {
   try {
+    console.log(`[LIVE] Navigating to: ${url}`)
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 })
     await sleep(randomDelay(2000, 3000))
+
+    // Check page title for debugging
+    const pageTitle = await page.title()
+    console.log(`[LIVE] Page title: ${pageTitle}`)
+
+    // Check if we're on a Reddit page (not login wall)
+    const currentUrl = page.url()
+    if (currentUrl.includes("login") || currentUrl.includes("signin")) {
+      throw new Error("Redirected to login page - session may have expired")
+    }
 
     // Find reply/textarea element
     const textareaSelectors = [
@@ -42,11 +53,15 @@ async function postToReddit(
     ]
 
     let textarea = null
+    let matchedSelector = ""
     for (const selector of textareaSelectors) {
       try {
         textarea = await page.locator(selector).first()
         const isVisible = await textarea.isVisible()
-        if (isVisible) break
+        if (isVisible) {
+          matchedSelector = selector
+          break
+        }
         textarea = null
       } catch {
         continue
@@ -54,8 +69,20 @@ async function postToReddit(
     }
 
     if (!textarea) {
+      console.log(`[LIVE] Available textareas on page:`)
+      const availableTextareas = await page.evaluate(() => {
+        const elements = document.querySelectorAll('textarea, div[contenteditable="true"]')
+        return Array.from(elements).map((el, i) => ({
+          tag: el.tagName,
+          placeholder: (el as HTMLTextAreaElement).placeholder,
+          visible: el.getBoundingClientRect().width > 0,
+        }))
+      })
+      console.log(JSON.stringify(availableTextareas, null, 2))
       throw new Error("Could not find reply textarea")
     }
+
+    console.log(`[LIVE] Found textarea with selector: ${matchedSelector}`)
 
     // Click to focus
     await textarea.click()
@@ -74,11 +101,15 @@ async function postToReddit(
     ]
 
     let submitButton = null
+    let matchedSubmitSelector = ""
     for (const selector of submitSelectors) {
       try {
         submitButton = await page.locator(selector).first()
         const isVisible = await submitButton.isVisible()
-        if (isVisible) break
+        if (isVisible) {
+          matchedSubmitSelector = selector
+          break
+        }
         submitButton = null
       } catch {
         continue
@@ -86,11 +117,12 @@ async function postToReddit(
     }
 
     if (submitButton) {
+      console.log(`[LIVE] Found submit button with selector: ${matchedSubmitSelector}`)
       await submitButton.click()
       await sleep(randomDelay(2000, 3000))
     } else {
-      // If no submit button found, assume fill was enough (some Reddit UIs auto-submit)
-      // Or try pressing Enter
+      console.log(`[LIVE] No submit button found, pressing Enter as fallback`)
+      // If no submit button found, try pressing Enter
       await textarea.press("Enter")
       await sleep(randomDelay(1000, 2000))
     }
@@ -104,6 +136,7 @@ async function postToReddit(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown posting error"
+    console.error(`[LIVE] Posting failed: ${message}`)
     return {
       success: false,
     }
@@ -170,41 +203,43 @@ export async function runRedditExecutor(limit = 5): Promise<void> {
         const threadUrl = item.payload.url as string
 
         if (SAFE_MODE) {
-          // Safe mode: log but don't post
+          // Safe mode: log but DON'T mutate queue or lead status
           console.log(`[SAFE MODE] Would post to: ${threadUrl}`)
           console.log(`[SAFE MODE] Reply text: ${replyText.slice(0, 100)}...`)
 
-          const fakeExternalId = `safe_${Date.now()}_${item.id.slice(0, 8)}`
-
+          // Log interaction for visibility, but mark as simulated
           await insertInteraction({
             lead_id: item.lead_id,
             channel: "reddit",
             direction: "outbound_post",
             message_text: replyText,
-            outcome: "posted_safe",
+            outcome: "simulated",
             metadata: {
               queue_id: item.id,
-              external_message_id: fakeExternalId,
-              payload: item.payload,
               mode: "safe",
+              note: "Safe mode - no actual post made",
             },
           })
 
-          await markExecutionPosted(item.id, fakeExternalId)
-          await updateLeadStatus(item.lead_id, "posted")
+          // Do NOT mark execution as posted - leave it queued for live run
+          // Do NOT update lead status in safe mode
+          // Reset status back to queued so live run can process it
+          await query(
+            `UPDATE execution_queue SET status = 'queued', updated_at = NOW() WHERE id = $1`,
+            [item.id]
+          )
 
           await logTelemetryEvent(
             AGENT_NAME,
-            "execution_posted_safe",
+            "execution_simulated",
             {
               queue_id: item.id,
-              external_message_id: fakeExternalId,
               mode: "safe",
             },
             item.lead_id
           )
 
-          posted += 1
+          skipped += 1
         } else {
           // Live mode: actually post
           const result = await postToReddit(page, threadUrl, replyText)
@@ -275,4 +310,6 @@ export async function runRedditExecutor(limit = 5): Promise<void> {
     skipped,
     mode: SAFE_MODE ? "safe" : "live",
   })
+
+  console.log(`\nRun complete: ${posted} posted, ${failed} failed, ${skipped} simulated (safe mode)`)
 }

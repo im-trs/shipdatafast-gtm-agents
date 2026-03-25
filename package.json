@@ -23,7 +23,9 @@
     "metrics": "tsx scripts/run-metrics.ts",
     "inspect:state": "tsx scripts/inspect-state.ts",
     "inspect:fresh": "tsx scripts/inspect-fresh-leads.ts",
-    "inspect:queue": "tsx scripts/inspect-queue.ts"
+    "inspect:queue": "tsx scripts/inspect-queue.ts",
+    "debug:reddit:session": "tsx scripts/debug-reddit-session.ts",
+    "debug:reddit:thread": "tsx scripts/debug-reddit-thread.ts"
   },
   "keywords": [],
   "author": "",
