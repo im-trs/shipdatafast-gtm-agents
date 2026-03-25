@@ -1,5 +1,6 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright"
+import { chromium, type BrowserContext, type Locator, type Page } from "playwright"
 import * as path from "path"
+import { DEFAULT_VIEWPORT, DEFAULT_USER_AGENT, PLAYWRIGHT_TIMEOUTS } from "./config"
 
 export function getProfileDir(): string {
   return path.join(process.cwd(), ".browser-profile")
@@ -10,10 +11,25 @@ export async function launchRedditPersistentContext(headless = false): Promise<B
 
   return chromium.launchPersistentContext(userDataDir, {
     headless,
-    viewport: { width: 1280, height: 800 },
-    userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    viewport: DEFAULT_VIEWPORT,
+    userAgent: DEFAULT_USER_AGENT,
   })
+}
+
+/**
+ * Helper to check if a locator is visible with auto-wait
+ * Returns false if element doesn't appear within timeout (doesn't throw)
+ */
+export async function isLocatorVisible(
+  locator: Locator,
+  timeout: number = PLAYWRIGHT_TIMEOUTS.quickCheck
+): Promise<boolean> {
+  try {
+    await locator.waitFor({ state: "visible", timeout })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function detectRedditLogin(page: Page) {
@@ -25,42 +41,37 @@ export async function detectRedditLogin(page: Page) {
     indicators.isChallengePage = pageTitle.includes("Prove your humanity") || pageTitle.includes("captcha")
 
     // Use user-facing locators with auto-wait
-    indicators.hasUserMenu = await page
-      .getByTestId('user-menu')
-      .isVisible()
-      .catch(() => false)
+    indicators.hasUserMenu = await isLocatorVisible(
+      page.getByTestId("user-menu"),
+      PLAYWRIGHT_TIMEOUTS.quickCheck
+    )
 
-    // Prefer role-based locators
-    indicators.hasAvatar = await page
-      .getByRole('img', { name: /avatar/i })
-      .or(page.locator('img[data-testid="avatar"]'))
-      .or(page.locator('img[src*="avatar"]'))
-      .isVisible()
-      .catch(() => false)
+    // Prefer role-based locators with .or() chaining
+    indicators.hasAvatar = await isLocatorVisible(
+      page.getByRole("img", { name: /avatar/i })
+        .or(page.locator('img[data-testid="avatar"]'))
+        .or(page.locator('img[src*="avatar"]'))
+    )
 
-    indicators.hasProfileLink = await page
-      .getByRole('link', { name: /profile|user|u\//i })
-      .isVisible()
-      .catch(() => false)
+    indicators.hasProfileLink = await isLocatorVisible(
+      page.getByRole("link", { name: /profile|user|u\//i })
+    )
 
     // Alternative: check for username in header
-    indicators.hasUsernameInHeader = await page
-      .locator('header [data-testid="user-menu"] span')
-      .or(page.locator('header button[aria-label*="user"]'))
-      .isVisible()
-      .catch(() => false)
+    indicators.hasUsernameInHeader = await isLocatorVisible(
+      page.locator('header [data-testid="user-menu"] span')
+        .or(page.locator('header button[aria-label*="user"]'))
+    )
 
     // Check for logged-out indicators
-    indicators.hasLoginButton = await page
-      .getByRole('button', { name: /log in|sign in/i })
-      .or(page.getByRole('link', { name: /log in/i }))
-      .isVisible()
-      .catch(() => false)
+    indicators.hasLoginButton = await isLocatorVisible(
+      page.getByRole("button", { name: /log in|sign in/i })
+        .or(page.getByRole("link", { name: /log in/i }))
+    )
 
-    indicators.hasSignupButton = await page
-      .getByRole('button', { name: /sign up/i })
-      .isVisible()
-      .catch(() => false)
+    indicators.hasSignupButton = await isLocatorVisible(
+      page.getByRole("button", { name: /sign up/i })
+    )
   } catch (err) {
     console.error("Login detection error:", err)
   }

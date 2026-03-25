@@ -11,9 +11,13 @@ import {
 } from "../core/repositories/execution"
 import { updateLeadStatus } from "../core/repositories/leads"
 import * as path from "path"
+import { launchRedditPersistentContext, isLocatorVisible } from "../core/playwright/reddit-session"
+import { PLAYWRIGHT_TIMEOUTS } from "../core/playwright/config"
 
 const AGENT_NAME = "executor_reddit"
 
+// Configurable headless mode (default: false for debugging)
+const HEADLESS = process.env.PLAYWRIGHT_HEADLESS === "true"
 const SAFE_MODE = process.env.REDDIT_EXECUTION_MODE !== "live"
 
 function sleep(ms: number): Promise<void> {
@@ -31,7 +35,7 @@ async function postToReddit(
 ): Promise<{ success: boolean; externalId?: string }> {
   try {
     console.log(`[LIVE] Navigating to: ${url}`)
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 })
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: PLAYWRIGHT_TIMEOUTS.navigation })
     
     // Wait for network to be idle (better than fixed timeout)
     await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
@@ -56,9 +60,8 @@ async function postToReddit(
       .first()
 
     // Wait for textarea to be visible with timeout
-    try {
-      await textarea.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
+    const textareaVisible = await isLocatorVisible(textarea, PLAYWRIGHT_TIMEOUTS.elementWait)
+    if (!textareaVisible) {
       console.log(`[LIVE] Available textareas on page:`)
       const availableTextareas = await page.evaluate(() => {
         const elements = document.querySelectorAll('textarea, div[contenteditable="true"]')
@@ -74,11 +77,7 @@ async function postToReddit(
 
     console.log(`[LIVE] Found reply textbox`)
 
-    // Click to focus and type
-    await textarea.click()
-    await sleep(500)
-
-    // Type the reply (simulate human typing)
+    // Type the reply (simulate human typing) - no need for click() before fill()
     await textarea.fill(replyText)
     await sleep(randomDelay(500, 1000))
 
@@ -89,11 +88,11 @@ async function postToReddit(
       .or(page.locator('[data-testid="post-comment"]'))
       .first()
 
-    try {
-      await submitButton.waitFor({ state: 'visible', timeout: 5000 })
+    const submitVisible = await isLocatorVisible(submitButton, PLAYWRIGHT_TIMEOUTS.elementWait)
+    if (submitVisible) {
       console.log(`[LIVE] Found submit button`)
       await submitButton.click()
-    } catch {
+    } else {
       console.log(`[LIVE] No submit button found, pressing Enter as fallback`)
       // If no submit button found, try pressing Enter
       await textarea.press("Enter")
@@ -137,18 +136,11 @@ export async function runRedditExecutor(limit = 5): Promise<void> {
   let skipped = 0
 
   // Launch browser with persistent context (allows manual login)
-  const userDataDir = path.join(process.cwd(), ".browser-profile")
-  
-  const browser = await chromium.launchPersistentContext(userDataDir, {
-    headless: false, // Show browser for debugging and manual login
-    viewport: { width: 1280, height: 800 },
-    userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  })
-
-  const page = await browser.newPage()
+  const browser = await launchRedditPersistentContext(HEADLESS)
 
   try {
+    const page = await browser.newPage()
+
     for (const item of redditQueue) {
       try {
         await markExecutionRunning(item.id)
