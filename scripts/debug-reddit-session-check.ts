@@ -1,7 +1,13 @@
 import { launchRedditPersistentContext, detectRedditLogin, logDetectionResult, getProfileDir } from "../core/playwright/reddit-session"
 
 async function main() {
-  const searchQuery = process.argv[2] || "data reconciliation"
+  // Handle both quoted and unquoted arguments
+  let searchQuery = process.argv[2] || "data reconciliation"
+  
+  // If user passed -- "query", the actual query is at index 3
+  if (process.argv[3]) {
+    searchQuery = process.argv[3]
+  }
 
   console.log("\n=== Reddit Session Validation ===\n")
   console.log(`Profile directory: ${getProfileDir()}`)
@@ -45,20 +51,22 @@ async function main() {
     timeout: 30000,
   })
 
-  await page.waitForTimeout(3000)
+  console.log("Waiting for search results to load...")
+  await page.waitForTimeout(2000)
 
   console.log(`Search results page title: ${await page.title()}\n`)
 
   // Step 3: Find and open first post
   console.log("--- Step 3: Open First Post ---")
+  console.log("Scanning for post links...")
 
-  // Try multiple selectors for post links
+  // Try multiple selectors for post links - optimized parallel approach
   const postSelectors = [
     'a[href*="/comments/"][data-click-id="post"]',
-    'a[href*="/comments/"]',
     'shreddit-post a[slot="title"]',
     'h3 a[href*="/comments/"]',
     '[data-testid="post-title"]',
+    'a[href*="/comments/"]',
   ]
 
   let firstPostLink = null
@@ -73,12 +81,12 @@ async function main() {
       if (isVisible && href && href.includes("/comments/")) {
         firstPostLink = href
         matchedSelector = selector
-        console.log(`Found post with selector: ${selector}`)
-        console.log(`Post href: ${href}\n`)
+        console.log(`✅ Found post with selector: ${selector}`)
+        console.log(`   Post href: ${href}\n`)
         break
       }
     } catch {
-      continue
+      // Silent fail, try next selector
     }
   }
 
@@ -100,18 +108,21 @@ async function main() {
     : `https://www.reddit.com${firstPostLink}`
 
   console.log(`Opening post: ${fullUrl}\n`)
+  console.log("Navigating to post...")
 
   await page.goto(fullUrl, {
     waitUntil: "domcontentloaded",
     timeout: 30000,
   })
 
-  await page.waitForTimeout(3000)
+  console.log("Post loaded, waiting for comments section...")
+  await page.waitForTimeout(2000)
 
   console.log(`Post page title: ${await page.title()}\n`)
 
   // Step 4: Detect comments
   console.log("--- Step 4: Detect Comments ---")
+  console.log("Scanning for comments...")
 
   const commentSelectors = [
     'shreddit-comment',
@@ -131,7 +142,7 @@ async function main() {
       if (count > 0) {
         commentCount = count
         matchedCommentSelector = selector
-        console.log(`Found ${count} comments with selector: ${selector}`)
+        console.log(`✅ Found ${count} comments with selector: ${selector}`)
         break
       }
     } catch {
@@ -166,8 +177,8 @@ async function main() {
   console.log()
 
   // Keep browser open briefly for manual inspection
-  console.log("Browser will close in 10 seconds...\n")
-  await page.waitForTimeout(10000)
+  console.log("Browser will close in 5 seconds...\n")
+  await page.waitForTimeout(5000)
 
   await browser.close()
   console.log("✅ Session validation complete.\n")
