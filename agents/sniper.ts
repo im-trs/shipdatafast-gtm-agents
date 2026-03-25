@@ -3,12 +3,60 @@ import { getLeadsNeedingReplies, updateLeadStatus, type LeadRecord } from "../co
 import { insertReplyVariant } from "../core/repositories/replies"
 import { insertInteraction } from "../core/repositories/interactions"
 import { logTelemetryEvent } from "../core/repositories/telemetry"
+import * as fs from "fs"
+import * as path from "path"
 
 const AGENT_NAME = "sniper"
-const PROMPT_VERSION = "sniper_v1"
+const DEFAULT_PROMPT_VERSION = "sniper_v1"
 
-function buildPrompt(lead: LeadRecord): string {
-  return `
+type PromptVersion = "sniper_v1" | "sniper_v2"
+
+let promptV1: string | null = null
+let promptV2: string | null = null
+
+function loadPrompts(): void {
+  const promptsDir = path.join(process.cwd(), "prompts")
+  
+  // Load v1 (required)
+  const v1Path = path.join(promptsDir, "sniper_v1.md")
+  try {
+    promptV1 = fs.readFileSync(v1Path, "utf-8").trim()
+  } catch {
+    promptV1 = null
+  }
+
+  // Load v2 (optional)
+  const v2Path = path.join(promptsDir, "sniper_v2.md")
+  try {
+    if (fs.existsSync(v2Path)) {
+      promptV2 = fs.readFileSync(v2Path, "utf-8").trim()
+    }
+  } catch {
+    promptV2 = null
+  }
+}
+
+function selectPromptVersion(): PromptVersion {
+  // If v2 exists, use 50/50 split
+  if (promptV2 !== null && Math.random() < 0.5) {
+    return "sniper_v2"
+  }
+  return "sniper_v1"
+}
+
+function getPromptContent(version: PromptVersion): string | null {
+  if (version === "sniper_v1") {
+    return promptV1
+  }
+  return promptV2
+}
+
+function buildPrompt(lead: LeadRecord, version: PromptVersion): string {
+  const promptContent = getPromptContent(version)
+  
+  // If prompt file is empty or null, use default inline prompt
+  if (!promptContent) {
+    return `
 You are a guerrilla B2B outreach assistant for ShipDataFast.
 
 Goal:
@@ -32,6 +80,12 @@ ${lead.title ?? ""}
 Lead body:
 ${lead.body ?? ""}
 `.trim()
+  }
+
+  // Replace placeholders in prompt template
+  return promptContent
+    .replace(/\{\{title\}\}/g, lead.title ?? "")
+    .replace(/\{\{body\}\}/g, lead.body ?? "")
 }
 
 function safeParseVariants(raw: string): string[] {
@@ -49,8 +103,8 @@ function safeParseVariants(raw: string): string[] {
   }
 }
 
-async function generateVariantsForLead(lead: LeadRecord): Promise<string[]> {
-  const prompt = buildPrompt(lead)
+async function generateVariantsForLead(lead: LeadRecord, version: PromptVersion): Promise<string[]> {
+  const prompt = buildPrompt(lead, version)
 
   const raw = await chat([
     { role: "system", content: "You generate concise B2B outreach replies." },
@@ -69,14 +123,31 @@ async function generateVariantsForLead(lead: LeadRecord): Promise<string[]> {
 }
 
 export async function runSniper(limit = 10): Promise<void> {
-  await logTelemetryEvent(AGENT_NAME, "run_started", { limit })
+  // Load prompts at startup
+  loadPrompts()
+
+  await logTelemetryEvent(AGENT_NAME, "run_started", { 
+    limit,
+    v1_loaded: promptV1 !== null,
+    v2_loaded: promptV2 !== null,
+  })
 
   const leads = await getLeadsNeedingReplies(limit)
 
   let processed = 0
 
   for (const lead of leads) {
-    const variants = await generateVariantsForLead(lead)
+    // Select prompt version for this lead (50/50 split if v2 exists)
+    const version = selectPromptVersion()
+
+    await logTelemetryEvent(
+      AGENT_NAME,
+      "prompt_selected",
+      { version },
+      lead.id
+    )
+
+    const variants = await generateVariantsForLead(lead, version)
 
     for (let i = 0; i < variants.length; i += 1) {
       const variantName = `variant_${i + 1}`
@@ -86,7 +157,7 @@ export async function runSniper(limit = 10): Promise<void> {
         lead_id: lead.id,
         agent_name: AGENT_NAME,
         variant_name: variantName,
-        prompt_version: PROMPT_VERSION,
+        prompt_version: version,
         reply_text: replyText,
         selected: i === 0,
       })
@@ -96,10 +167,11 @@ export async function runSniper(limit = 10): Promise<void> {
         channel: lead.source,
         direction: "outbound_draft",
         message_text: replyText,
-        message_version: `${PROMPT_VERSION}:${variantName}`,
+        message_version: `${version}:${variantName}`,
         outcome: "generated",
         metadata: {
           selected: i === 0,
+          prompt_version: version,
         },
       })
     }
@@ -112,6 +184,7 @@ export async function runSniper(limit = 10): Promise<void> {
       {
         variantCount: variants.length,
         source: lead.source,
+        prompt_version: version,
       },
       lead.id
     )
