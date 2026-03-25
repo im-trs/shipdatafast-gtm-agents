@@ -1,16 +1,7 @@
 import { insertLead, findLeadBySourceExternalId } from "../core/repositories/leads"
 import { logTelemetryEvent } from "../core/repositories/telemetry"
 import { scoreLead } from "../core/scoring/lead-score"
-
-export type RawLead = {
-  source: string
-  source_type: string
-  external_id: string
-  author_handle?: string
-  url?: string
-  title?: string
-  body?: string
-}
+import type { RawLead } from "./hunter-types"
 
 const AGENT_NAME = "hunter"
 
@@ -28,10 +19,15 @@ export async function ingestRawLeads(rawLeads: RawLead[]): Promise<void> {
     if (existing) {
       skipped += 1
 
-      await logTelemetryEvent(AGENT_NAME, "lead_skipped_duplicate", {
-        source: raw.source,
-        external_id: raw.external_id,
-      }, existing.id)
+      await logTelemetryEvent(
+        AGENT_NAME,
+        "lead_skipped_duplicate",
+        {
+          source: raw.source,
+          external_id: raw.external_id,
+        },
+        existing.id
+      )
 
       continue
     }
