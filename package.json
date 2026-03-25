@@ -25,7 +25,9 @@
     "inspect:fresh": "tsx scripts/inspect-fresh-leads.ts",
     "inspect:queue": "tsx scripts/inspect-queue.ts",
     "debug:reddit:session": "tsx scripts/debug-reddit-session.ts",
-    "debug:reddit:thread": "tsx scripts/debug-reddit-thread.ts"
+    "debug:reddit:thread": "tsx scripts/debug-reddit-thread.ts",
+    "debug:reddit:login": "tsx scripts/debug-reddit-login.ts",
+    "debug:reddit:check": "tsx scripts/debug-reddit-session-check.ts"
   },
   "keywords": [],
   "author": "",
