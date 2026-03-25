@@ -23,10 +23,16 @@ async function main() {
   const indicators = await detectRedditLogin(page)
   logDetectionResult(indicators)
 
-  if (indicators.overall !== "logged_in") {
-    console.log("⚠️  Not logged in. Run 'pnpm debug:reddit:login' first.\n")
+  // Allow challenge page to pass through (user may be logged in but Reddit shows CAPTCHA)
+  if (indicators.overall === "logged_out") {
+    console.log("❌ Not logged in. Run 'pnpm debug:reddit:login' first.\n")
     await browser.close()
     process.exit(1)
+  }
+  
+  if (indicators.overall === "challenge_page") {
+    console.log("⚠️  Challenge page detected. You may still be logged in.")
+    console.log("Continuing with search test...\n")
   }
 
   // Step 2: Search Reddit

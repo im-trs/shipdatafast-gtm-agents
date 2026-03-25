@@ -20,6 +20,10 @@ export async function detectRedditLogin(page: any) {
   const indicators: Record<string, boolean | null> = {}
 
   try {
+    // Check for CAPTCHA / challenge page
+    const pageTitle = await page.title()
+    indicators.isChallengePage = pageTitle.includes("Prove your humanity") || pageTitle.includes("captcha")
+    
     // Check for logged-in indicators
     indicators.hasUserMenu = await page
       .locator('[data-testid="user-menu"]')
@@ -27,18 +31,24 @@ export async function detectRedditLogin(page: any) {
       .catch(() => false)
 
     indicators.hasAvatar = await page
-      .locator('img[alt="User Avatar"], img[data-testid="avatar"]')
+      .locator('img[alt="User Avatar"], img[data-testid="avatar"], img[src*="avatar"]')
       .isVisible()
       .catch(() => false)
 
     indicators.hasProfileLink = await page
-      .locator('a[href*="/user/"], a[href*="/u/"]')
+      .locator('a[href*="/user/"], a[href*="/u/"], nav a[href*="/user/"]')
+      .isVisible()
+      .catch(() => false)
+
+    // Alternative: check for username in header
+    indicators.hasUsernameInHeader = await page
+      .locator('header [data-testid="user-menu"] span, header button[aria-label*="user"]')
       .isVisible()
       .catch(() => false)
 
     // Check for logged-out indicators
     indicators.hasLoginButton = await page
-      .locator('button:has-text("Log In"), button:has-text("Sign In")')
+      .locator('button:has-text("Log In"), button:has-text("Sign In"), a:has-text("Log In")')
       .isVisible()
       .catch(() => false)
 
@@ -54,29 +64,49 @@ export async function detectRedditLogin(page: any) {
   const isLoggedIn =
     indicators.hasUserMenu ||
     indicators.hasAvatar ||
-    indicators.hasProfileLink
+    indicators.hasProfileLink ||
+    indicators.hasUsernameInHeader
 
   const isLoggedOut =
     indicators.hasLoginButton || indicators.hasSignupButton
 
-  indicators.overall = isLoggedIn ? "logged_in" : isLoggedOut ? "logged_out" : "unknown"
+  if (indicators.isChallengePage) {
+    indicators.overall = "challenge_page"
+  } else if (isLoggedIn) {
+    indicators.overall = "logged_in"
+  } else if (isLoggedOut) {
+    indicators.overall = "logged_out"
+  } else {
+    indicators.overall = "unknown"
+  }
 
   return indicators
 }
 
 export function logDetectionResult(indicators: Record<string, boolean | null>) {
   console.log("\n=== Login Detection Result ===")
+  
+  if (indicators.isChallengePage) {
+    console.log("\n⚠️  REDDIT CAPTCHA/CHALLENGE PAGE DETECTED")
+    console.log("Reddit is showing a 'Prove your humanity' or CAPTCHA page.")
+    console.log("This is normal for automated browsers.")
+    console.log("Complete the challenge manually if prompted.")
+  }
+  
   console.log(`User menu visible: ${indicators.hasUserMenu ? "✅" : "❌"}`)
   console.log(`Avatar visible: ${indicators.hasAvatar ? "✅" : "❌"}`)
   console.log(`Profile link visible: ${indicators.hasProfileLink ? "✅" : "❌"}`)
-  console.log(`Login button visible: ${indicators.hasLoginButton ? "❌ (bad)" : "✅ (good)"}`)
-  console.log(`Signup button visible: ${indicators.hasSignupButton ? "❌ (bad)" : "✅ (good)"}`)
+  console.log(`Username in header: ${indicators.hasUsernameInHeader ? "✅" : "❌"}`)
+  console.log(`Login button visible: ${indicators.hasLoginButton ? "❌ (logged out)" : "✅ (not logged out)"}`)
+  console.log(`Signup button visible: ${indicators.hasSignupButton ? "❌ (logged out)" : "✅ (not logged out)"}`)
   console.log(`\nOverall status: ${indicators.overall?.toUpperCase()}`)
 
   if (indicators.overall === "logged_in") {
     console.log("\n✅ Appears to be LOGGED IN\n")
   } else if (indicators.overall === "logged_out") {
     console.log("\n❌ Appears to be LOGGED OUT\n")
+  } else if (indicators.overall === "challenge_page") {
+    console.log("\n⚠️  Challenge page detected - complete CAPTCHA manually if shown\n")
   } else {
     console.log("\n⚠️  Login status unclear - inspect manually\n")
   }

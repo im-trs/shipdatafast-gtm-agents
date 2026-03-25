@@ -44,6 +44,20 @@ async function main() {
   const indicators = await detectRedditLogin(page)
   logDetectionResult(indicators)
 
+  // Also navigate to a different page to bypass CAPTCHA
+  console.log("Navigating to r/reddit to verify session...")
+  await page.goto("https://www.reddit.com/r/reddit/", {
+    waitUntil: "domcontentloaded",
+    timeout: 30000,
+  })
+  await page.waitForTimeout(2000)
+  
+  console.log(`Current URL: ${page.url()}`)
+  console.log(`Page title: ${await page.title()}\n`)
+  
+  const indicators2 = await detectRedditLogin(page)
+  logDetectionResult(indicators2)
+
   // Save current state
   console.log("Closing browser (session will be persisted)...\n")
   await browser.close()
